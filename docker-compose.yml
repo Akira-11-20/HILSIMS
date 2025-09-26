@@ -1,0 +1,45 @@
+services:
+  act:
+    build:
+      context: .
+      dockerfile: ./hils/act/Dockerfile
+    container_name: rt_act
+    environment:
+      - ACT_HOST=0.0.0.0
+      - ACT_PORT=5001
+      - STEP_MS=10
+      - LOG_TIMESTAMP=${LOG_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}
+      - USER_ID=${UID:-1000}
+      - GROUP_ID=${GID:-1000}
+    networks: [ simnet ]
+    cap_add:
+      - NET_ADMIN  # tc コマンド用
+    volumes:
+      - ./logs:/app/logs
+
+  sim:
+    build:
+      context: .
+      dockerfile: ./hils/sim/Dockerfile
+    container_name: rt_sim
+    environment:
+      - ACT_HOST=act
+      - ACT_PORT=5001
+      - STEP_MS=10
+      - REPLY_TIMEOUT_MS=2      # ステップ内で待つ時間
+      - TOTAL_STEPS=10000       # 総ステップ（例：100秒＝10000*10ms）
+      - NETWORK_DELAY_MS=1      # 遅延設定（ms）
+      - LOG_TIMESTAMP=${LOG_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}
+      - USER_ID=${UID:-1000}
+      - GROUP_ID=${GID:-1000}
+    depends_on:
+      - act
+    networks: [ simnet ]
+    cap_add:
+      - NET_ADMIN  # tc コマンド用
+    volumes:
+      - ./logs:/app/logs
+
+networks:
+  simnet:
+    driver: bridge
