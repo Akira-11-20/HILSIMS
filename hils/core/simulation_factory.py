@@ -1,9 +1,10 @@
 import importlib
 import os
-from typing import Tuple
+from typing import Tuple, TYPE_CHECKING
 
-from .sim.simulator_base import SimulatorProcessor, SimulatorLogger
-from .hw.hardware_base import HardwareProcessor, HardwareLogger
+if TYPE_CHECKING:
+    from .sim.simulator_base import SimulatorProcessor, SimulatorLogger
+    from .hw.hardware_base import HardwareProcessor, HardwareLogger
 
 
 class SimulationFactory:
@@ -13,7 +14,7 @@ class SimulationFactory:
     """
 
     @staticmethod
-    def create_simulator(sim_type: str) -> Tuple[SimulatorProcessor, SimulatorLogger]:
+    def create_simulator(sim_type: str) -> Tuple:
         """シミュレーター種類に応じてProcessor/Loggerを生成"""
 
         if sim_type == "numeric":
@@ -38,7 +39,7 @@ class SimulationFactory:
                 raise ValueError(f"Unknown simulation type: {sim_type}. Error: {e}")
 
     @staticmethod
-    def create_hardware(hw_type: str) -> Tuple[HardwareProcessor, HardwareLogger]:
+    def create_hardware(hw_type: str) -> Tuple:
         """ハードウェア種類に応じてProcessor/Loggerを生成"""
 
         if hw_type == "numeric":

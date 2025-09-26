@@ -14,11 +14,39 @@ import pandas as pd
 
 def load_sim_data(log_dir):
     """シミュレーションログを読み込む"""
-    sim_log = Path(log_dir) / "sim_log.csv"
-    if not sim_log.exists():
-        raise FileNotFoundError(f"sim_log.csv not found in {log_dir}")
+    log_path = Path(log_dir)
 
-    df = pd.read_csv(sim_log)
+    # 新しい形式のログファイルを探す
+    sim_comm_files = list(log_path.glob("*_sim_comm.csv"))
+    hw_comm_files = list(log_path.glob("*_hw_comm.csv"))
+
+    if sim_comm_files and hw_comm_files:
+        # 新しい形式のログファイルが存在する場合
+        sim_df = pd.read_csv(sim_comm_files[0])
+        hw_df = pd.read_csv(hw_comm_files[0])
+
+        # HardwareログをSimulatorログにマージ
+        hw_df_selected = hw_df[['step_id', 't_act_recv_ns', 't_act_send_ns']].rename(columns={
+            't_act_recv_ns': 't_act_recv_ns_hw',
+            't_act_send_ns': 't_act_send_ns_hw'
+        })
+
+        df = sim_df.merge(hw_df_selected, on='step_id', how='inner')
+
+        # 新しい列名を古い形式に合わせる
+        df['t_act_recv_ns'] = df['t_act_recv_ns_hw']
+        df['t_act_send_ns'] = df['t_act_send_ns_hw']
+
+        print(f"Loaded new format logs: {sim_comm_files[0].name} + {hw_comm_files[0].name}")
+
+    else:
+        # 古い形式のログファイル
+        sim_log = log_path / "sim_log.csv"
+        if not sim_log.exists():
+            raise FileNotFoundError(f"No log files found in {log_dir}. Expected either sim_log.csv or *_sim_comm.csv + *_hw_comm.csv")
+
+        df = pd.read_csv(sim_log)
+        print(f"Loaded legacy format log: sim_log.csv")
 
     # 必要な列が存在するかチェック
     required_cols = [
@@ -189,13 +217,19 @@ def create_plots(df, output_dir=None):
 
 def find_latest_log_dir():
     """最新のログディレクトリを見つける"""
-    log_dirs = glob.glob("logs/*/sim_log.csv")
-    if not log_dirs:
+    # 新しい形式のログファイル（*_sim_comm.csv）を探す
+    new_format_logs = glob.glob("logs/*/*_sim_comm.csv")
+    # 古い形式のログファイル（sim_log.csv）を探す
+    old_format_logs = glob.glob("logs/*/sim_log.csv")
+
+    all_log_files = new_format_logs + old_format_logs
+
+    if not all_log_files:
         raise FileNotFoundError("No log directories found in logs/")
 
-    # 最新のディレクトリを取得
-    latest = max(log_dirs, key=os.path.getmtime)
-    return Path(latest).parent
+    # 最新のファイルを取得
+    latest_file = max(all_log_files, key=os.path.getmtime)
+    return Path(latest_file).parent
 
 
 def main():

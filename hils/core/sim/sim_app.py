@@ -5,6 +5,7 @@ import time
 import json
 
 sys.path.append("/app")
+from common.protocol import pack, recv_obj, now_ns
 
 from ..simulation_factory import SimulationFactory
 
@@ -36,22 +37,33 @@ def main():
                 # コマンド生成
                 cmd = processor.generate_command(step_id)
 
-                # 送信
-                t_sim_send = time.time_ns()
-                sock.send(json.dumps(cmd).encode() + b'\n')
+                # 送信 (共通プロトコル使用)
+                t_sim_send = now_ns()
+                command_msg = {
+                    "command": {
+                        "step_id": step_id,
+                        "timestamp_ns": t_sim_send,
+                        "cmd": cmd
+                    }
+                }
+                sock.sendall(pack(command_msg))
 
-                # 受信
-                response = sock.recv(1024).decode().strip()
-                t_sim_recv = time.time_ns()
+                # 受信 (共通プロトコル使用)
+                response = recv_obj(sock, timeout=2.0)
+                t_sim_recv = now_ns()
 
                 if response:
-                    result = json.loads(response)
-                    processor.process_result(result)
+                    telemetry = response.get("telemetry", {})
+                    processed_result = processor.process_result(telemetry)
 
-                    # ログ記録
+                    # ハードウェア側のタイムスタンプを取得
+                    t_act_recv = telemetry.get("t_act_recv_ns", 0)
+                    t_act_send = telemetry.get("t_act_send_ns", 0)
+
+                    # ログ記録（processed_resultを使用）
                     logger.log_step(
-                        step_id, t_sim_send, t_sim_recv, None, None,
-                        False, 0.0, cmd, result
+                        step_id, t_sim_send, t_sim_recv, t_act_recv, t_act_send,
+                        False, 0.0, cmd, processed_result
                     )
 
                 time.sleep(step_ms / 1000.0)

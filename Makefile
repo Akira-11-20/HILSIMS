@@ -1,4 +1,4 @@
-.PHONY: run run-vehicle run-numeric build up down logs status clean config help
+.PHONY: run run-vehicle run-numeric build up down logs status clean config analyze analyze-stats plot-rtt help
 
 # デフォルトターゲット
 help:
@@ -22,6 +22,11 @@ help:
 	@echo "  logs-hw      - Show hardware logs only"
 	@echo "  status       - Show container status"
 	@echo "  show-logs    - Show latest log files"
+	@echo ""
+	@echo "Analysis:"
+	@echo "  analyze      - Run RTT analysis with plots"
+	@echo "  analyze-stats - Run RTT analysis (stats only)"
+	@echo "  plot-rtt     - Create RTT timeline plot"
 	@echo ""
 	@echo "Development:"
 	@echo "  install      - Install dependencies"
@@ -117,6 +122,17 @@ config:
 	@echo "  NETWORK_DELAY_MS: $${NETWORK_DELAY_MS:-0}"
 	@echo ""
 	@echo "Available simulation types: numeric (basic test), vehicle"
+
+# Analysis
+analyze:
+	uv run python analysis/analyze_rtt.py
+	uv run python analysis/plot_rtt_timeline.py
+
+analyze-stats:
+	uv run python analysis/analyze_rtt.py --no-plot
+
+plot-rtt:
+	uv run python analysis/plot_rtt_timeline.py
 
 # Development
 install:

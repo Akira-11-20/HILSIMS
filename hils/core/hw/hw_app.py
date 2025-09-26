@@ -5,6 +5,7 @@ import json
 import time
 
 sys.path.append("/app")
+from common.protocol import pack, recv_obj, now_ns
 
 from ..simulation_factory import SimulationFactory
 
@@ -36,35 +37,43 @@ def main():
         print(f"[hw] Connected from {addr}")
 
         try:
-            step_id = 0
-            buffer = ""
-
             while True:
-                data = conn.recv(1024).decode()
-                if not data:
+                try:
+                    # メッセージ受信 (共通プロトコル使用)
+                    message = recv_obj(conn, timeout=None)
+                    t_recv = now_ns()
+
+                    command = message.get("command", {})
+                    step_id = command.get("step_id", 0)
+                    cmd_data = command.get("cmd", {})
+
+                    # 処理実行
+                    result = processor.process_command(cmd_data)
+
+                    # 応答送信
+                    t_send = now_ns()
+                    telemetry_msg = {
+                        "telemetry": {
+                            "step_id": step_id,
+                            "t_act_recv_ns": t_recv,
+                            "t_act_send_ns": t_send,
+                            "missing_cmd": False,
+                            "result": result,
+                            "note": "processed"
+                        }
+                    }
+                    conn.sendall(pack(telemetry_msg))
+
+                    # ログ記録
+                    logger.log_step(
+                        step_id, t_recv, t_send, False, "processed", result
+                    )
+
+                except ConnectionError:
                     break
-
-                buffer += data
-                while '\n' in buffer:
-                    line, buffer = buffer.split('\n', 1)
-                    if line.strip():
-                        # コマンド受信
-                        t_recv = time.time_ns()
-                        cmd = json.loads(line.strip())
-
-                        # 処理実行
-                        result = processor.process_command(cmd)
-
-                        # 応答送信
-                        t_send = time.time_ns()
-                        conn.send(json.dumps(result).encode() + b'\n')
-
-                        # ログ記録
-                        logger.log_step(
-                            step_id, t_recv, t_send, False, "", result
-                        )
-
-                        step_id += 1
+                except Exception as e:
+                    print(f"[hw] Error processing message: {e}")
+                    break
 
         finally:
             conn.close()

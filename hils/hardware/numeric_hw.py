@@ -2,7 +2,7 @@ import sys
 from typing import Any, Dict
 
 sys.path.append("/app")
-from hils.core.hardware_base import HardwareState, HardwareProcessor, HardwareLogger
+from hils.core.hw.hardware_base import HardwareState, HardwareProcessor, HardwareLogger
 
 
 class NumericState(HardwareState):

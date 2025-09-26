@@ -1,4 +1,4 @@
-from hils.core.hardware_base import HardwareState, HardwareProcessor, HardwareLogger
+from hils.core.hw.hardware_base import HardwareState, HardwareProcessor, HardwareLogger
 import sys
 sys.path.append("/app")
 

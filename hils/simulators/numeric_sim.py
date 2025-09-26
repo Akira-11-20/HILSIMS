@@ -2,7 +2,7 @@ import sys
 from typing import Any, Dict
 
 sys.path.append("/app")
-from hils.core.simulator_base import SimulatorState, SimulatorProcessor, SimulatorLogger
+from hils.core.sim.simulator_base import SimulatorState, SimulatorProcessor, SimulatorLogger
 
 
 class NumericState(SimulatorState):
