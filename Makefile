@@ -3,6 +3,8 @@
 # デフォルトターゲット
 help:
 	@echo "HiLSim-3 Makefile Commands:"
+	@echo ""
+	@echo "Simulation:"
 	@echo "  run          - Build and run simulation with timestamped logs"
 	@echo "  build        - Build Docker images"
 	@echo "  up           - Start containers (without build)"
@@ -11,10 +13,19 @@ help:
 	@echo "  status       - Show container status"
 	@echo "  clean        - Stop containers and remove images"
 	@echo "  clean-logs   - Remove all log directories"
+	@echo ""
+	@echo "Analysis:"
 	@echo "  analyze      - Run RTT analysis with plots"
 	@echo "  analyze-stats - Run RTT analysis (stats only)"
 	@echo "  plot-rtt     - Create RTT timeline plot"
+	@echo ""
+	@echo "Development:"
 	@echo "  install      - Install Python dependencies with uv"
+	@echo "  setup-dev    - Setup development environment with pre-commit"
+	@echo "  lint         - Run linting and type checking"
+	@echo "  format       - Format code with black and ruff"
+	@echo "  test         - Run tests"
+	@echo "  pre-commit   - Run pre-commit hooks on all files"
 
 # タイムスタンプを生成してシミュレーション実行
 run:
@@ -114,3 +125,26 @@ plot-rtt:
 # 依存関係インストール
 install:
 	uv sync
+
+# 開発環境セットアップ
+setup-dev: install
+	uv run pre-commit install
+
+# リント・フォーマット
+lint:
+	uv run ruff check .
+	uv run black --check .
+	uv run mypy .
+
+# フォーマット適用
+format:
+	uv run ruff check --fix .
+	uv run black .
+
+# テスト実行
+test:
+	uv run pytest
+
+# pre-commit実行
+pre-commit:
+	uv run pre-commit run --all-files
