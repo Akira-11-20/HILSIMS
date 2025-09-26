@@ -1,36 +1,39 @@
-.PHONY: run build up down logs clean status help
+.PHONY: run run-vehicle run-numeric build up down logs status clean config help
 
 # デフォルトターゲット
 help:
 	@echo "HiLSim-3 Makefile Commands:"
 	@echo ""
 	@echo "Simulation:"
-	@echo "  run          - Build and run simulation with timestamped logs"
+	@echo "  run          - Run simulation with current .env settings"
+	@echo "  run-vehicle  - Run vehicle simulation"
+	@echo "  run-numeric  - Run numeric simulation (basic communication test)"
+	@echo "  config       - Show current configuration"
+	@echo ""
+	@echo "Control:"
 	@echo "  build        - Build Docker images"
 	@echo "  up           - Start containers (without build)"
-	@echo "  down         - Stop and remove containers"
-	@echo "  logs         - Show container logs"
-	@echo "  status       - Show container status"
+	@echo "  down         - Stop containers"
 	@echo "  clean        - Stop containers and remove images"
-	@echo "  clean-logs   - Remove all log directories"
 	@echo ""
-	@echo "Analysis:"
-	@echo "  analyze      - Run RTT analysis with plots"
-	@echo "  analyze-stats - Run RTT analysis (stats only)"
-	@echo "  plot-rtt     - Create RTT timeline plot"
+	@echo "Monitoring:"
+	@echo "  logs         - Show container logs"
+	@echo "  logs-sim     - Show simulator logs only"
+	@echo "  logs-hw      - Show hardware logs only"
+	@echo "  status       - Show container status"
+	@echo "  show-logs    - Show latest log files"
 	@echo ""
 	@echo "Development:"
-	@echo "  install      - Install Python dependencies with uv"
-	@echo "  setup-dev    - Setup development environment with pre-commit"
-	@echo "  lint         - Run linting and type checking"
-	@echo "  format       - Format code with black and ruff"
+	@echo "  install      - Install dependencies"
 	@echo "  test         - Run tests"
-	@echo "  pre-commit   - Run pre-commit hooks on all files"
+	@echo "  lint         - Run linting"
+	@echo "  format       - Format code"
 
-# タイムスタンプを生成してシミュレーション実行
+# Main simulation command
 run:
 	@LOG_TIMESTAMP=$$(date +%Y%m%d_%H%M%S); \
 	echo "Starting HiLSim-3 with log timestamp: $$LOG_TIMESTAMP"; \
+	echo "Configuration: SIM_TYPE=$${SIM_TYPE:-vehicle}, HW_TYPE=$${HW_TYPE:-vehicle}"; \
 	echo "Logs will be saved to: ./logs/$$LOG_TIMESTAMP/"; \
 	export LOG_TIMESTAMP=$$LOG_TIMESTAMP; \
 	export UID=$$(id -u); \
@@ -38,57 +41,58 @@ run:
 	docker compose up --build; \
 	echo "Simulation completed. Check logs in: ./logs/$$LOG_TIMESTAMP/"
 
-# バックグラウンド実行
-run-bg:
+# Vehicle simulation
+run-vehicle:
 	@LOG_TIMESTAMP=$$(date +%Y%m%d_%H%M%S); \
-	echo "Starting HiLSim-3 in background with log timestamp: $$LOG_TIMESTAMP"; \
-	echo "Logs will be saved to: ./logs/$$LOG_TIMESTAMP/"; \
+	echo "Starting Vehicle Simulation with log timestamp: $$LOG_TIMESTAMP"; \
 	export LOG_TIMESTAMP=$$LOG_TIMESTAMP; \
 	export UID=$$(id -u); \
 	export GID=$$(id -g); \
-	docker compose up --build -d; \
-	echo "Simulation started in background. Log timestamp: $$LOG_TIMESTAMP"
+	export SIM_TYPE=vehicle; \
+	export HW_TYPE=vehicle; \
+	docker compose up --build; \
+	echo "Vehicle simulation completed. Check logs in: ./logs/$$LOG_TIMESTAMP/"
 
-# イメージをビルド
+# Numeric simulation (basic communication test)
+run-numeric:
+	@LOG_TIMESTAMP=$$(date +%Y%m%d_%H%M%S); \
+	echo "Starting Numeric Simulation (basic communication test) with log timestamp: $$LOG_TIMESTAMP"; \
+	export LOG_TIMESTAMP=$$LOG_TIMESTAMP; \
+	export UID=$$(id -u); \
+	export GID=$$(id -g); \
+	export SIM_TYPE=numeric; \
+	export HW_TYPE=numeric; \
+	docker compose up --build; \
+	echo "Numeric simulation completed. Check logs in: ./logs/$$LOG_TIMESTAMP/"
+
+# Container management
 build:
 	docker compose build
 
-# コンテナ起動（ビルドなし）
 up:
 	docker compose up
 
-# コンテナ停止・削除
 down:
 	docker compose down
 
-# ログ表示
+clean:
+	docker compose down --rmi all --volumes --remove-orphans
+	@echo "Cleaned up containers and images"
+
+# Monitoring
 logs:
 	docker compose logs
 
-# simのログのみ
 logs-sim:
-	docker logs rt_sim
+	docker logs hilsim_simulator
 
-# actのログのみ
-logs-act:
-	docker logs rt_act
+logs-hw:
+	docker logs hilsim_hardware
 
-# コンテナ状態確認
 status:
 	docker compose ps
 
-# 完全クリーンアップ（コンテナ停止・イメージ削除）
-clean:
-	docker compose down --rmi all --volumes --remove-orphans
-
-# ログディレクトリをクリーンアップ
-clean-logs:
-	@echo "Removing all log directories..."
-	rm -rf logs/*/
-	@echo "Log directories cleaned."
-
-# 最新のログディレクトリを表示
-show-latest-logs:
+show-logs:
 	@if [ -d "logs" ]; then \
 		latest=$$(ls -1t logs/ | head -1); \
 		if [ -n "$$latest" ]; then \
@@ -102,49 +106,29 @@ show-latest-logs:
 		echo "logs directory does not exist"; \
 	fi
 
-# 設定確認
+# Configuration
 config:
-	@echo "Current configuration:"
-	@echo "  TOTAL_STEPS: $${TOTAL_STEPS:-10000}"
+	@echo "Current HiLSim-3 Configuration:"
+	@echo "  SIM_TYPE: $${SIM_TYPE:-vehicle}"
+	@echo "  HW_TYPE: $${HW_TYPE:-vehicle}"
+	@echo "  TOTAL_STEPS: $${TOTAL_STEPS:-1000}"
 	@echo "  STEP_MS: $${STEP_MS:-10}"
 	@echo "  REPLY_TIMEOUT_MS: $${REPLY_TIMEOUT_MS:-2}"
-	@echo "  NETWORK_DELAY_MS: $${NETWORK_DELAY_MS:-1}"
+	@echo "  NETWORK_DELAY_MS: $${NETWORK_DELAY_MS:-0}"
+	@echo ""
+	@echo "Available simulation types: numeric (basic test), vehicle"
 
-# RTT解析
-analyze:
-	uv run python analysis/analyze_rtt.py
-
-# RTT解析（プロットなし）
-analyze-stats:
-	uv run python analysis/analyze_rtt.py --no-plot
-
-# RTTタイムラインプロット
-plot-rtt:
-	uv run python analysis/plot_rtt_timeline.py
-
-# 依存関係インストール
+# Development
 install:
 	uv sync
 
-# 開発環境セットアップ
-setup-dev: install
-	uv run pre-commit install
-
-# リント・フォーマット
-lint:
-	uv run ruff check .
-	uv run black --check .
-	uv run mypy .
-
-# フォーマット適用
-format:
-	uv run ruff check --fix .
-	uv run black .
-
-# テスト実行
 test:
 	uv run pytest
 
-# pre-commit実行
-pre-commit:
-	uv run pre-commit run --all-files
+lint:
+	uv run ruff check .
+	uv run mypy .
+
+format:
+	uv run ruff check --fix .
+	uv run black .

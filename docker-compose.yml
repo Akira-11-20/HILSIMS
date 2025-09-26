@@ -1,14 +1,15 @@
 services:
-  act:
+  hardware:
     build:
       context: .
-      dockerfile: ./hils/act/Dockerfile
-    container_name: rt_act
+      dockerfile: ./hils/core/hw/Dockerfile
+    container_name: hilsim_hardware
     environment:
+      - HW_TYPE=${HW_TYPE:-numeric}
       - ACT_HOST=0.0.0.0
-      - ACT_PORT=5001
-      - STEP_MS=10
-      - LOG_TIMESTAMP=${LOG_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}
+      - ACT_PORT=${ACT_PORT:-5001}
+      - STEP_MS=${STEP_MS:-10}
+      - LOG_TIMESTAMP=${LOG_TIMESTAMP}
       - USER_ID=${UID:-1000}
       - GROUP_ID=${GID:-1000}
     networks: [ simnet ]
@@ -17,23 +18,24 @@ services:
     volumes:
       - ./logs:/app/logs
 
-  sim:
+  simulator:
     build:
       context: .
-      dockerfile: ./hils/sim/Dockerfile
-    container_name: rt_sim
+      dockerfile: ./hils/core/sim/Dockerfile
+    container_name: hilsim_simulator
     environment:
-      - ACT_HOST=act
-      - ACT_PORT=5001
-      - STEP_MS=10
-      - REPLY_TIMEOUT_MS=2      # ステップ内で待つ時間
-      - TOTAL_STEPS=10000       # 総ステップ（例：100秒＝10000*10ms）
-      - NETWORK_DELAY_MS=1      # 遅延設定（ms）
-      - LOG_TIMESTAMP=${LOG_TIMESTAMP:-$(date +%Y%m%d_%H%M%S)}
+      - SIM_TYPE=${SIM_TYPE:-numeric}
+      - ACT_HOST=${ACT_HOST:-hardware}
+      - ACT_PORT=${ACT_PORT:-5001}
+      - STEP_MS=${STEP_MS:-10}
+      - REPLY_TIMEOUT_MS=${REPLY_TIMEOUT_MS:-2}
+      - TOTAL_STEPS=${TOTAL_STEPS:-1000}
+      - NETWORK_DELAY_MS=${NETWORK_DELAY_MS:-0}
+      - LOG_TIMESTAMP=${LOG_TIMESTAMP}
       - USER_ID=${UID:-1000}
       - GROUP_ID=${GID:-1000}
     depends_on:
-      - act
+      - hardware
     networks: [ simnet ]
     cap_add:
       - NET_ADMIN  # tc コマンド用

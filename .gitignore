@@ -56,6 +56,9 @@ logs/*/
 # uv
 uv.lock
 
+# Archive directory
+archive/
+
 # Analysis output (keep structure but ignore content)
 *.png
 *.csv
