@@ -4,11 +4,46 @@ import socket
 import time
 import json
 import subprocess
+import random
 
 sys.path.append("/app")
 from common.protocol import pack, recv_obj, now_ns
 
 from ..simulation_factory import SimulationFactory
+
+
+def _calculate_delay_with_variance(base_delay_ms: int, variance_ms: float, distribution: str) -> float:
+    """
+    分散を考慮した遅延時間を計算
+
+    Args:
+        base_delay_ms: 基本遅延時間（ミリ秒）
+        variance_ms: 分散の標準偏差（ミリ秒）
+        distribution: 分布タイプ ("normal", "uniform", "exponential")
+
+    Returns:
+        実際の遅延時間（ミリ秒）、負の値は0にクリップ
+    """
+    if variance_ms <= 0:
+        return float(base_delay_ms)
+
+    if distribution == "normal":
+        # 正規分布: N(base_delay, variance^2)
+        delay = random.gauss(base_delay_ms, variance_ms)
+    elif distribution == "uniform":
+        # 一様分布: [base_delay - variance, base_delay + variance]
+        delay = random.uniform(base_delay_ms - variance_ms, base_delay_ms + variance_ms)
+    elif distribution == "exponential":
+        # 指数分布: 平均がbase_delayになるようにスケール
+        # variance_msは変動の度合いとして使用
+        scale = base_delay_ms / (1 + variance_ms / base_delay_ms)
+        delay = random.expovariate(1.0 / scale)
+    else:
+        # 不明な分布タイプの場合は正規分布を使用
+        delay = random.gauss(base_delay_ms, variance_ms)
+
+    # 負の遅延は0にクリップ
+    return max(0.0, delay)
 
 
 def setup_network_delay(delay_ms: int) -> None:
@@ -52,26 +87,35 @@ def setup_network_delay(delay_ms: int) -> None:
             print("[sim] tc command not found, skipping network delay setup")
 
 
-def apply_sim_to_hw_delay(delay_ms: int) -> None:
+def apply_sim_to_hw_delay(delay_ms: int, variance_ms: float = 0, distribution: str = "normal") -> None:
     """
     シミュレータからハードウェアへの送信時に遅延を適用
 
     Args:
-        delay_ms: 遅延時間（ミリ秒）
+        delay_ms: 基本遅延時間（ミリ秒）
+        variance_ms: 遅延の分散（標準偏差、ミリ秒）
+        distribution: 分布タイプ ("normal", "uniform", "exponential")
 
     Note:
         time.sleep()のオーバーヘッドを考慮して補正
         実測で約0.2ms/msのオーバーヘッドがあるため補正
     """
     if delay_ms > 0:
+        # 分散を適用した遅延時間を計算
+        actual_delay_ms = _calculate_delay_with_variance(delay_ms, variance_ms, distribution)
+
         # sleep()オーバーヘッド補正（実測値に基づく調整）
         # 1ms実測→1.2ms なので0.2ms減らす必要がある
-        overhead_correction = delay_ms * 0.35 / 1000.0  # 35%のオーバーヘッド補正
-        corrected_delay = max(0, (delay_ms / 1000.0) - overhead_correction)
+        overhead_correction = actual_delay_ms * 0 / 1000.0  # 35%のオーバーヘッド補正
+        corrected_delay = max(0, (actual_delay_ms / 1000.0) - overhead_correction)
         time.sleep(corrected_delay)
 
 
-def setup_bidirectional_delay(sim_to_hw_ms: int, hw_to_sim_ms: int, legacy_ms: int = 0) -> tuple[int, int]:
+def setup_bidirectional_delay(
+    sim_to_hw_ms: int, hw_to_sim_ms: int, legacy_ms: int = 0,
+    sim_to_hw_variance_ms: float = 0, hw_to_sim_variance_ms: float = 0, legacy_variance_ms: float = 0,
+    sim_to_hw_distribution: str = "normal", hw_to_sim_distribution: str = "normal", legacy_distribution: str = "normal"
+) -> tuple[int, int, float, float, str, str]:
     """
     双方向ネットワーク遅延設定
 
@@ -79,9 +123,15 @@ def setup_bidirectional_delay(sim_to_hw_ms: int, hw_to_sim_ms: int, legacy_ms: i
         sim_to_hw_ms: シミュレータ→ハードウェア遅延（ms）
         hw_to_sim_ms: ハードウェア→シミュレータ遅延（ms）
         legacy_ms: レガシー設定（両方向、優先度低）
+        sim_to_hw_variance_ms: シミュレータ→ハードウェア分散（ms）
+        hw_to_sim_variance_ms: ハードウェア→シミュレータ分散（ms）
+        legacy_variance_ms: レガシー分散設定（両方向）
+        sim_to_hw_distribution: シミュレータ→ハードウェア分布タイプ
+        hw_to_sim_distribution: ハードウェア→シミュレータ分布タイプ
+        legacy_distribution: レガシー分布タイプ
 
     Returns:
-        (実際のsim→hw遅延, 実際のhw→sim遅延) のタプル
+        (sim→hw遅延, hw→sim遅延, sim→hw分散, hw→sim分散, sim→hw分布, hw→sim分布) のタプル
 
     Note:
         個別設定が0の場合はレガシー設定を使用
@@ -91,10 +141,16 @@ def setup_bidirectional_delay(sim_to_hw_ms: int, hw_to_sim_ms: int, legacy_ms: i
     actual_sim_to_hw = sim_to_hw_ms if sim_to_hw_ms > 0 else legacy_ms
     actual_hw_to_sim = hw_to_sim_ms if hw_to_sim_ms > 0 else legacy_ms
 
-    if actual_sim_to_hw > 0 or actual_hw_to_sim > 0:
-        print(f"[sim] Network delay configured: SIM→HW {actual_sim_to_hw}ms, HW→SIM {actual_hw_to_sim}ms")
+    actual_sim_to_hw_variance = sim_to_hw_variance_ms if sim_to_hw_variance_ms > 0 else legacy_variance_ms
+    actual_hw_to_sim_variance = hw_to_sim_variance_ms if hw_to_sim_variance_ms > 0 else legacy_variance_ms
 
-    return actual_sim_to_hw, actual_hw_to_sim
+    actual_sim_to_hw_distribution = sim_to_hw_distribution if sim_to_hw_ms > 0 else legacy_distribution
+    actual_hw_to_sim_distribution = hw_to_sim_distribution if hw_to_sim_ms > 0 else legacy_distribution
+
+    if actual_sim_to_hw > 0 or actual_hw_to_sim > 0:
+        print(f"[sim] Network delay configured: SIM→HW {actual_sim_to_hw}ms±{actual_sim_to_hw_variance}ms({actual_sim_to_hw_distribution}), HW→SIM {actual_hw_to_sim}ms±{actual_hw_to_sim_variance}ms({actual_hw_to_sim_distribution})")
+
+    return actual_sim_to_hw, actual_hw_to_sim, actual_sim_to_hw_variance, actual_hw_to_sim_variance, actual_sim_to_hw_distribution, actual_hw_to_sim_distribution
 
 
 def main():
@@ -113,12 +169,24 @@ def main():
     sim_to_hw_delay_ms = int(os.environ.get("NETWORK_DELAY_SIM_TO_HW_MS", "0"))
     hw_to_sim_delay_ms = int(os.environ.get("NETWORK_DELAY_HW_TO_SIM_MS", "0"))
 
+    # 遅延分散設定
+    sim_to_hw_variance_ms = float(os.environ.get("NETWORK_DELAY_SIM_TO_HW_VARIANCE_MS", "0"))
+    hw_to_sim_variance_ms = float(os.environ.get("NETWORK_DELAY_HW_TO_SIM_VARIANCE_MS", "0"))
+    legacy_variance_ms = float(os.environ.get("NETWORK_DELAY_VARIANCE_MS", "0"))
+
+    # 分布タイプ設定
+    sim_to_hw_distribution = os.environ.get("NETWORK_DELAY_SIM_TO_HW_DISTRIBUTION", "normal")
+    hw_to_sim_distribution = os.environ.get("NETWORK_DELAY_HW_TO_SIM_DISTRIBUTION", "normal")
+    legacy_distribution = os.environ.get("NETWORK_DELAY_DISTRIBUTION", "normal")
+
     print(f"[sim] Starting {sim_type} simulation")
     print(f"[sim] Target: {act_host}:{act_port}, Steps: {total_steps}, Interval: {step_ms}ms")
 
     # 双方向ネットワーク遅延設定
-    actual_sim_to_hw, actual_hw_to_sim = setup_bidirectional_delay(
-        sim_to_hw_delay_ms, hw_to_sim_delay_ms, legacy_delay_ms
+    actual_sim_to_hw, actual_hw_to_sim, actual_sim_to_hw_variance, actual_hw_to_sim_variance, actual_sim_to_hw_distribution, actual_hw_to_sim_distribution = setup_bidirectional_delay(
+        sim_to_hw_delay_ms, hw_to_sim_delay_ms, legacy_delay_ms,
+        sim_to_hw_variance_ms, hw_to_sim_variance_ms, legacy_variance_ms,
+        sim_to_hw_distribution, hw_to_sim_distribution, legacy_distribution
     )
 
     try:
@@ -138,7 +206,7 @@ def main():
                 t_sim_send = now_ns()
 
                 # 送信前遅延適用（シミュレータ→ハードウェア）
-                apply_sim_to_hw_delay(actual_sim_to_hw)
+                apply_sim_to_hw_delay(actual_sim_to_hw, actual_sim_to_hw_variance, actual_sim_to_hw_distribution)
 
                 # 実際の送信タイムスタンプ（遅延適用後）
                 t_sim_send_actual = now_ns()
@@ -151,6 +219,8 @@ def main():
                         "timestamp_actual_ns": t_sim_send_actual,  # 実際の送信時刻
                         "cmd": cmd,
                         "hw_to_sim_delay_ms": actual_hw_to_sim,  # ハードウェア側に返信遅延を指示
+                        "hw_to_sim_variance_ms": actual_hw_to_sim_variance,  # ハードウェア側分散
+                        "hw_to_sim_distribution": actual_hw_to_sim_distribution,  # ハードウェア側分布
                         "applied_sim_to_hw_delay_ms": actual_sim_to_hw  # 適用した送信遅延
                     }
                 }
