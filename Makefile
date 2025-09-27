@@ -1,5 +1,11 @@
 .PHONY: run run-vehicle run-numeric build up down logs status clean config analyze analyze-stats plot-rtt help
 
+# .envファイルがあれば読み込む
+ifneq (,$(wildcard ./.env))
+    include .env
+    export
+endif
+
 # デフォルトターゲット
 help:
 	@echo "HiLSim-3 Makefile Commands:"
@@ -45,6 +51,8 @@ run:
 	export GID=$$(id -g); \
 	docker compose up --build; \
 	echo "Simulation completed. Check logs in: ./logs/$$LOG_TIMESTAMP/"
+
+all: run analyze
 
 # Vehicle simulation
 run-vehicle:
@@ -121,7 +129,11 @@ config:
 	@echo "  TOTAL_STEPS: $${TOTAL_STEPS:-1000}"
 	@echo "  STEP_MS: $${STEP_MS:-10}"
 	@echo "  REPLY_TIMEOUT_MS: $${REPLY_TIMEOUT_MS:-2}"
-	@echo "  NETWORK_DELAY_MS: $${NETWORK_DELAY_MS:-0}"
+	@echo ""
+	@echo "Network Delay Configuration:"
+	@echo "  NETWORK_DELAY_MS: $${NETWORK_DELAY_MS:-0} (legacy - both directions)"
+	@echo "  NETWORK_DELAY_SIM_TO_HW_MS: $${NETWORK_DELAY_SIM_TO_HW_MS:-0} (sim→hw)"
+	@echo "  NETWORK_DELAY_HW_TO_SIM_MS: $${NETWORK_DELAY_HW_TO_SIM_MS:-0} (hw→sim)"
 	@echo ""
 	@echo "Available simulation types: numeric (basic test), vehicle"
 

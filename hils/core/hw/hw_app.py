@@ -10,6 +10,25 @@ from common.protocol import pack, recv_obj, now_ns
 from ..simulation_factory import SimulationFactory
 
 
+def apply_hw_to_sim_delay(delay_ms: int) -> None:
+    """
+    ハードウェアからシミュレータへの送信時に遅延を適用
+
+    Args:
+        delay_ms: 遅延時間（ミリ秒）
+
+    Note:
+        time.sleep()のオーバーヘッドを考慮して補正
+        実測で約0.26ms/msのオーバーヘッドがあるため補正
+    """
+    if delay_ms > 0:
+        # sleep()オーバーヘッド補正（実測値に基づく調整）
+        # 2ms実測→1.9ms なので0.1ms増やす必要がある（補正を減らす）
+        overhead_correction = delay_ms * 0.2 / 1000.0  # 20%のオーバーヘッド補正
+        corrected_delay = max(0, (delay_ms / 1000.0) - overhead_correction)
+        time.sleep(corrected_delay)
+
+
 def main():
     """汎用ハードウェアメイン"""
     # 環境変数でハードウェア種類を指定
@@ -46,20 +65,31 @@ def main():
                     command = message.get("command", {})
                     step_id = command.get("step_id", 0)
                     cmd_data = command.get("cmd", {})
+                    hw_to_sim_delay_ms = command.get("hw_to_sim_delay_ms", 0)
 
                     # 処理実行
                     result = processor.process_command(cmd_data)
 
-                    # 応答送信
+                    # 送信タイムスタンプを遅延適用前に記録（RTT測定用）
                     t_send = now_ns()
+
+                    # 送信前遅延適用（ハードウェア→シミュレータ）
+                    apply_hw_to_sim_delay(hw_to_sim_delay_ms)
+
+                    # 実際の送信タイムスタンプ（遅延適用後）
+                    t_send_actual = now_ns()
+
+                    # 応答送信
                     telemetry_msg = {
                         "telemetry": {
                             "step_id": step_id,
                             "t_act_recv_ns": t_recv,
-                            "t_act_send_ns": t_send,
+                            "t_act_send_ns": t_send,  # RTT測定用（遅延前）
+                            "t_act_send_actual_ns": t_send_actual,  # 実際の送信時刻
                             "missing_cmd": False,
                             "result": result,
-                            "note": "processed"
+                            "note": "processed",
+                            "applied_hw_to_sim_delay_ms": hw_to_sim_delay_ms
                         }
                     }
                     conn.sendall(pack(telemetry_msg))
