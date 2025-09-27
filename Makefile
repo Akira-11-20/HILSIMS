@@ -84,6 +84,8 @@ clean:
 	docker compose down --rmi all --volumes --remove-orphans
 	@echo "Cleaned up containers and images"
 
+rebuild: clean build
+
 # Monitoring
 logs:
 	docker compose logs
