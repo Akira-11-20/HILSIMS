@@ -4,11 +4,72 @@ import socket
 import json
 import time
 import random
+import subprocess
 
 sys.path.append("/app")
 from common.protocol import pack, recv_obj, now_ns
 
 from ..simulation_factory import SimulationFactory
+
+
+def setup_tc_egress_delay(
+    delay_ms: int, variance_ms: float = 0, distribution: str = "normal", container_type: str = "hw"
+) -> bool:
+    """
+    tcを使ったegress（送信）遅延設定
+
+    Args:
+        delay_ms: 遅延時間（ms）
+        variance_ms: 遅延の分散（標準偏差、ms）
+        distribution: 分布タイプ ("normal", "uniform", "pareto")
+        container_type: コンテナタイプ ("sim" or "hw")
+
+    Returns:
+        True: 設定成功, False: 設定失敗
+
+    Note:
+        各コンテナで送信側のみを制御するシンプルなアプローチ
+    """
+    if delay_ms <= 0:
+        return True  # 遅延なしの場合は何もしない
+
+    try:
+        # 既存設定をクリア
+        subprocess.run(["sudo", "tc", "qdisc", "del", "dev", "eth0", "root"], capture_output=True, check=False)
+
+        # egress遅延を設定
+        cmd = ["sudo", "tc", "qdisc", "add", "dev", "eth0", "root", "netem", "delay", f"{delay_ms}ms"]
+
+        if variance_ms > 0:
+            cmd.append(f"{variance_ms}ms")
+            if distribution == "uniform":
+                cmd.extend(["distribution", "uniform"])
+            elif distribution == "pareto":
+                cmd.extend(["distribution", "pareto"])
+            # normalはデフォルトなので指定不要
+
+        subprocess.run(cmd, check=True)
+        print(f"[{container_type}] TC egress delay set: {delay_ms}ms±{variance_ms}ms ({distribution})")
+        return True
+
+    except subprocess.CalledProcessError as e:
+        print(f"[{container_type}] Failed to set TC egress delay: {e}")
+        return False
+    except FileNotFoundError:
+        print(f"[{container_type}] tc command not found")
+        return False
+
+
+def cleanup_tc_delay() -> None:
+    """
+    tcネットワーク遅延設定をクリーンアップ
+    """
+    try:
+        # 既存設定をクリア
+        subprocess.run(["sudo", "tc", "qdisc", "del", "dev", "eth0", "root"], capture_output=True, check=False)
+        print("[hw] TC network delay settings cleaned up")
+    except Exception as e:
+        print(f"[hw] Warning: TC cleanup failed: {e}")
 
 
 def _calculate_delay_with_variance(base_delay_ms: int, variance_ms: float, distribution: str) -> float:
@@ -81,6 +142,9 @@ def main():
     print(f"[hw] Starting {hw_type} hardware")
     print(f"[hw] Listening on {host}:{port}")
 
+    # tc設定状態を追跡
+    tc_hw_configured = False
+
     try:
         processor, logger = SimulationFactory.create_hardware(hw_type)
 
@@ -108,6 +172,15 @@ def main():
                     hw_to_sim_delay_ms = command.get("hw_to_sim_delay_ms", 0)
                     hw_to_sim_variance_ms = command.get("hw_to_sim_variance_ms", 0)
                     hw_to_sim_distribution = command.get("hw_to_sim_distribution", "normal")
+                    use_tc_egress = command.get("use_tc_egress", False)
+
+                    # tcベース遅延設定（一回だけ実行）
+                    if use_tc_egress and not tc_hw_configured:
+                        print(f"[hw] Setting up tc egress delay for hw→sim communication")
+                        tc_hw_success = setup_tc_egress_delay(
+                            hw_to_sim_delay_ms, hw_to_sim_variance_ms, hw_to_sim_distribution, "hw"
+                        )
+                        tc_hw_configured = tc_hw_success
 
                     # 処理実行
                     result = processor.process_command(cmd_data)
@@ -116,7 +189,9 @@ def main():
                     t_send = now_ns()
 
                     # 送信前遅延適用（ハードウェア→シミュレータ）
-                    apply_hw_to_sim_delay(hw_to_sim_delay_ms, hw_to_sim_variance_ms, hw_to_sim_distribution)
+                    # tc設定が成功した場合はsleep遅延をスキップ
+                    if not tc_hw_configured:
+                        apply_hw_to_sim_delay(hw_to_sim_delay_ms, hw_to_sim_variance_ms, hw_to_sim_distribution)
 
                     # 実際の送信タイムスタンプ（遅延適用後）
                     t_send_actual = now_ns()
@@ -151,6 +226,9 @@ def main():
             conn.close()
             server_sock.close()
             logger.close()
+            # tcネットワーク遅延設定をクリーンアップ
+            if tc_hw_configured:
+                cleanup_tc_delay()
 
     except ValueError as e:
         print(f"[hw] Error: {e}")
